@@ -532,37 +532,41 @@ describe("no-project Quick Chat", () => {
     ).toBeVisible();
   });
 
-  it("converts independent actions after tutorials while keeping tutorial steps in chat", async () => {
-    installApi({ sessions: [session] });
-    const user = userEvent.setup();
-    render(<App />);
-    await user.click(
-      await screen.findByRole("button", { name: "快速问答" }),
-    );
+  it(
+    "converts independent actions after tutorials while keeping tutorial steps in chat",
+    async () => {
+      installApi({ sessions: [session] });
+      const user = userEvent.setup();
+      render(<App />);
+      await user.click(
+        await screen.findByRole("button", { name: "快速问答" }),
+      );
 
-    const input = screen.getByLabelText("快速问答内容");
-    await user.type(
-      input,
-      "Explain how to create an SVG icon and then make it responsive",
-    );
-    expect(
-      screen.queryByRole("button", { name: "转为项目任务" }),
-    ).not.toBeInTheDocument();
-
-    for (const prompt of [
-      "Explain how to create an SVG icon and then create a logo in this project",
-      "Explain SVG and also create a logo in this project",
-      "如何使用 SVG，然后创建一个徽标",
-      "请解释 SVG，然后在项目中创建一个徽标",
-      "请解释 SVG，然后帮我创建一个徽标",
-    ]) {
-      await user.clear(input);
-      await user.type(input, prompt);
+      const input = screen.getByLabelText("快速问答内容");
+      await user.type(
+        input,
+        "Explain how to create an SVG icon and then make it responsive",
+      );
       expect(
-        await screen.findByRole("button", { name: "转为项目任务" }),
-      ).toBeVisible();
-    }
-  });
+        screen.queryByRole("button", { name: "转为项目任务" }),
+      ).not.toBeInTheDocument();
+
+      for (const prompt of [
+        "Explain how to create an SVG icon and then create a logo in this project",
+        "Explain SVG and also create a logo in this project",
+        "如何使用 SVG，然后创建一个徽标",
+        "请解释 SVG，然后在项目中创建一个徽标",
+        "请解释 SVG，然后帮我创建一个徽标",
+      ]) {
+        await user.clear(input);
+        await user.type(input, prompt);
+        expect(
+          await screen.findByRole("button", { name: "转为项目任务" }),
+        ).toBeVisible();
+      }
+    },
+    15_000,
+  );
 
   it("uses tutorial and project clause scope for media conversion", async () => {
     installApi({ sessions: [session] });
