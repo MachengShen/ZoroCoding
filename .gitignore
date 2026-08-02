@@ -1,0 +1,17 @@
+.worktrees/
+.superpowers/
+outputs/
+node_modules/
+dist/
+dist-electron/
+dist-renderer/
+release/
+coverage/
+test-results/
+playwright-report/
+build/*.iconset/
+*.log
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+.DS_Store

@@ -1,0 +1,64 @@
+{
+  "name": "zorocoding",
+  "version": "0.2.0",
+  "private": true,
+  "author": "ZoroCoding",
+  "description": "A local macOS coding agent with real task progress.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vionzoro/ZoroCoding.git"
+  },
+  "homepage": "https://github.com/vionzoro/ZoroCoding#readme",
+  "bugs": {
+    "url": "https://github.com/vionzoro/ZoroCoding/issues"
+  },
+  "main": "dist-electron/main/index.js",
+  "scripts": {
+    "dev": "npm run clean:electron && concurrently -k \"vite --host 127.0.0.1\" \"tsc -p tsconfig.main.json --watch --preserveWatchOutput\" \"tsc -p tsconfig.preload.json --watch --preserveWatchOutput\" \"vite build --config vite.preload.config.ts --watch\" \"wait-on http://127.0.0.1:5173 dist-electron/main/index.js dist-electron/preload/index.js && electron .\"",
+    "clean:electron": "node -e \"const fs=require('node:fs'); for (const directory of ['dist-electron/main','dist-electron/preload','dist-electron/shared']) fs.rmSync(directory,{recursive:true,force:true})\"",
+    "build:renderer": "vite build",
+    "build:main": "tsc -p tsconfig.main.json",
+    "typecheck:preload": "tsc -p tsconfig.preload.json",
+    "build:preload": "npm run typecheck:preload && vite build --config vite.preload.config.ts",
+    "build": "npm run clean:electron && npm run build:main && npm run build:preload && npm run build:renderer",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "npm run build && playwright test",
+    "verify": "npm test && npm run build && npm run test:e2e",
+    "package:mac": "npm run build && electron-builder --config.electronDownload.cache=${TMPDIR:-/tmp}/zorocoding-electron-cache --mac dir --${npm_package_config_release_arch} && ./scripts/create-dmg.sh",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "config": {
+    "release_arch": "arm64"
+  },
+  "dependencies": {
+    "better-sqlite3": "13.0.1",
+    "lucide-react": "1.27.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.0",
+    "@testing-library/jest-dom": "7.0.0",
+    "@testing-library/react": "16.3.2",
+    "@testing-library/user-event": "14.6.1",
+    "@types/better-sqlite3": "7.6.13",
+    "@types/node": "26.1.1",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.4",
+    "concurrently": "10.0.4",
+    "electron": "43.2.0",
+    "electron-builder": "26.15.3",
+    "jsdom": "30.0.0",
+    "typescript": "7.0.2",
+    "vite": "8.1.5",
+    "vitest": "4.1.10",
+    "wait-on": "9.1.0"
+  },
+  "engines": {
+    "node": ">=22 <23"
+  }
+}

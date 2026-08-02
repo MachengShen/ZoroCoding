@@ -1,0 +1,129 @@
+# ZoroCoding
+
+ZoroCoding 是一款面向 Apple Silicon Mac 的本地 AI 编程桌面应用，保留一条清晰的核心链路：
+
+> 选择移动硬盘中的项目 → 提交任务 → AI 读取/修改代码并运行命令 → 查看实时进度、预计剩余时间和结果
+
+应用提供 KIMI K3 等常用服务模板，也支持添加、更新和删除任意兼容 OpenAI Chat Completions 的模型 API。
+
+## 系统要求
+
+- Apple Silicon Mac（arm64）
+- macOS 12 或更高版本
+- 一块可写的移动硬盘
+- 可用的 KIMI 或 OpenAI 兼容模型 API Key
+- Node.js 22（仅源码开发需要）
+
+## 固定的移动硬盘布局
+
+发布版必须从移动硬盘根目录运行：
+
+```text
+/Volumes/<磁盘名称>/ZoroCoding.app
+```
+
+应用不能复制到 Mac 的“应用程序”文件夹运行。以名为 `ORICO` 的移动硬盘为例，数据和项目固定保存在：
+
+```text
+/Volumes/ORICO/ZoroCodingData/AppData
+/Volumes/ORICO/ZoroCodingData/Projects
+```
+
+- `AppData` 保存数据库、加密后的 API Key 文件、日志和备份。
+- `Projects` 是唯一可以选择和修改项目的目录；请先把项目放入该目录。
+- 应用不会把数据库、密钥或项目回退到 Mac 内置磁盘。
+
+移动硬盘断开后，ZoroCoding 会立即中止正在进行的模型请求、文件操作和终端命令，并锁定会写入数据的操作。即使重新接入同名硬盘，也需要重启 ZoroCoding，确认存储位置正确后才能继续任务。
+
+## 安装与启动
+
+1. 打开 `ZoroCoding-0.2.0-arm64.dmg`。
+2. 将 `ZoroCoding.app` 复制到移动硬盘根目录，而不是“应用程序”文件夹。
+3. 确认路径形如 `/Volumes/ORICO/ZoroCoding.app`，然后从该位置打开。
+4. 在“设置与模型”中确认显示的 `AppData` 和 `Projects` 都位于同一块移动硬盘。
+
+当前 DMG 使用本地 ad-hoc 签名，未使用 Apple Developer ID，也未经过 Apple 公证。如果 macOS 首次打开时提示无法验证开发者，请在 Finder 中按住 Control 点按 ZoroCoding，选择“打开”，再确认一次。公开分发前仍需 Developer ID 签名和 Apple 公证。
+
+## 配置模型
+
+打开左下角“设置与模型”。快速配置区中的模板只包含公开服务地址、模型建议和计费提示，不包含 API Key。
+
+配置 KIMI K3：
+
+1. 点击“配置 KIMI K3”并输入 Moonshot 开放平台 API Key。
+2. 选择发现到的 KIMI K3 模型并测试连接。
+3. 保存并设为默认模型。
+
+ZoroCoding 的安装流程将 KIMI K3 设为新任务的默认模型，但不会在 KIMI 不可用时静默切换到其他服务。KIMI K3 可能按 Moonshot 账号的实际用量产生 API 费用，请在服务后台确认额度和计费规则。
+
+管理其他模型 API：
+
+- 添加：选择内置模板，或点击“添加模型 API”填写兼容服务地址、模型 ID 和 API Key。
+- 更新：点击模型行的“编辑”，修改服务地址、模型或新 API Key，再保存。
+- 测试：点击“测试连接”；状态和最后测试时间会显示在模型卡片中。
+- 设为默认：点击星标“设为默认”，后续新任务会优先选中该模型。
+- 删除：点击垃圾桶并确认。删除会一并移除对应的加密密钥，但不会删除历史任务；正在被运行中任务使用的模型不能删除。
+
+自定义服务必须使用 HTTPS；只有 `localhost` 和 `127.0.0.1` 可在开发测试时使用 HTTP。自定义请求头不能覆盖 `Authorization`、`Cookie` 或 `Host`。
+
+## 密钥与跨 Mac 使用
+
+API Key 通过 Electron `safeStorage` 和当前 Mac 的系统安全能力加密后，才写入移动硬盘。数据库只保存密钥引用和末四位掩码，不保存明文。
+
+加密数据可能与创建它的 macOS 用户或钥匙串环境绑定。把移动硬盘接到另一台 Mac 后，如果系统无法解密原密钥，需要在设置中重新输入并测试 API Key。
+
+发布包和源码发布物不包含任何私人 API Key。测试使用的假密钥仅存在于测试代码，不会打入 `app.asar` 或 DMG。
+
+## 发起任务
+
+1. 点击“发起新任务”。
+2. 通过文件夹选择器授权 `ZoroCodingData/Projects` 中的项目。
+3. 选择模型并描述要完成的代码任务。
+4. 点击“开始任务”。
+
+右侧进度面板显示真实步骤完成比例、当前步骤、已用时间、动态预计剩余时间和最近一次终端输出。模型等待重试、等待用户批准或任务暂停时，倒计时会暂停。
+
+默认可自动读取和修改已授权项目内的普通文件，并运行明确的包管理脚本、只读 Git 检查和 `pwd`。删除、越出项目目录、`sudo`、全局安装、磁盘操作、推送远程或其他高风险命令需要用户批准。
+
+## 暂停、取消与恢复
+
+- 暂停：中止当前模型请求和正在运行的命令，保留任务上下文。
+- 继续：从安全状态恢复；已完成的相同工具操作不会重复执行。
+- 取消：终止任务，任务历史仍保留。
+- 关闭窗口：先把运行中的任务安全暂停。
+- 异常退出：下次启动时显示“上次执行被中断”，需要点击“安全继续”。
+- 模型限流或临时错误：自动退避重试，等待期间进度和倒计时暂停。
+
+## 开发、验证与打包
+
+```bash
+npm install
+npm run dev
+```
+
+完整验证与 arm64 打包：
+
+```bash
+npm test
+npm run build
+npm run test:e2e
+npm run package:mac
+```
+
+发布产物：
+
+```text
+release/mac-arm64/ZoroCoding.app
+release/ZoroCoding-0.2.0-arm64.dmg
+release/ZoroCoding-0.2.0-arm64.dmg.sha256
+```
+
+`create-dmg.sh` 从 `package.json` 读取版本和发布架构，生成 ad-hoc 签名的本地测试包。发布前应再次验证签名、可执行文件架构、`app.asar` 内容和秘密扫描结果。
+
+## 参与贡献
+
+欢迎提交 Issue 和 Pull Request。提交代码前请运行 `npm test` 和 `npm run build`，并确保不要提交真实 API Key、`ZoroCodingData`、数据库、日志或发布产物。
+
+## 开源协议
+
+ZoroCoding 使用 [MIT License](LICENSE) 开源。

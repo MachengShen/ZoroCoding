@@ -1,0 +1,22 @@
+appId: com.zorocoding.desktop
+productName: ZoroCoding
+directories:
+  output: release
+files:
+  - dist-electron/**/*
+  - dist-renderer/**/*
+  - package.json
+  - "!node_modules/better-sqlite3/prebuilds/*.node"
+  - node_modules/better-sqlite3/prebuilds/darwin-arm64.node
+asar: true
+asarUnpack:
+  - node_modules/better-sqlite3/**/*
+mac:
+  category: public.app-category.developer-tools
+  icon: build/icon.icns
+  identity: null
+  minimumSystemVersion: "12.0"
+  target:
+    - target: dir
+      arch:
+        - arm64
