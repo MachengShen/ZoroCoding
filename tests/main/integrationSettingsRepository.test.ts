@@ -47,7 +47,7 @@ describe("integration settings", () => {
     database.close();
     database = openDatabase(join(directory, "settings.sqlite"));
     repository = new IntegrationSettingsRepository(database, secrets);
-    expect(database.prepare("SELECT version FROM schema_version").pluck().get()).toBe(4);
+    expect(database.prepare("SELECT version FROM schema_version").pluck().get()).toBe(5);
     expect(database.prepare("SELECT name FROM projects").pluck().get()).toBe("项目");
     await repository.update({ id: "optional-service", token: "saved-token" }, 1);
     database.close();
@@ -55,6 +55,44 @@ describe("integration settings", () => {
     repository = new IntegrationSettingsRepository(database, secrets);
     expect(repository.get("optional-service")).toMatchObject({ enabled: false, keySuffix: "oken" });
     expect(await secrets.get(repository.listSecretRefs()[0])).toBe("saved-token");
+  });
+
+  it("migrates version 4 without changing opt-in state or token references", async () => {
+    await repository.update({ id: "memory", endpoint: "https://192.0.2.1/mcp", token: "saved-token" }, 1);
+    const reference = repository.listSecretRefs()[0];
+    database.exec("ALTER TABLE integration_settings DROP COLUMN options_json; UPDATE schema_version SET version = 4;");
+    database.close();
+    database = openDatabase(join(directory, "settings.sqlite"));
+    repository = new IntegrationSettingsRepository(database, secrets);
+    expect(database.prepare("SELECT version FROM schema_version").pluck().get()).toBe(5);
+    expect(repository.get("memory")).toMatchObject({ enabled: false, endpoint: "https://192.0.2.1/mcp", keySuffix: "oken" });
+    expect(repository.get("memory").options).toBeUndefined();
+    expect(repository.listSecretRefs()).toEqual([reference]);
+    expect(await secrets.get(reference)).toBe("saved-token");
+  });
+
+  it("persists opt-in options across reopening and retains them on token-only updates", async () => {
+    const options = {
+      readEnabled: true, writeEnabled: false, projectIds: ["selected-project"],
+      reviewer: "http" as const, unavailablePolicy: "manual" as const,
+    };
+    await repository.update({ id: "memory", options }, 1);
+    await repository.update({ id: "memory", token: "saved-token" }, 2);
+    database.close();
+    database = openDatabase(join(directory, "settings.sqlite"));
+    repository = new IntegrationSettingsRepository(database, secrets);
+    expect(repository.get("memory").options).toEqual(options);
+    const stored = database.prepare("SELECT options_json FROM integration_settings").pluck().get() as string;
+    expect(stored).not.toContain("saved-token");
+    expect(repository.get("memory").enabled).toBe(false);
+  });
+
+  it("rejects unknown policy or secret fields inside options", async () => {
+    for (const options of [{ unavailablePolicy: "allow" }, { token: "saved-token" }, { readEnabled: "true" }]) {
+      await expect(repository.update({ id: "memory", options } as never, 1)).rejects.toThrow();
+    }
+    expect(repository.listSecretRefs()).toEqual([]);
+    expect(database.prepare("SELECT COUNT(*) FROM integration_settings").pluck().get()).toBe(0);
   });
 
   it("backs up a failed migration and reads disabled defaults without creating the missing table", async () => {

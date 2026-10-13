@@ -188,6 +188,7 @@ const integrationApi: ZoroApi["integrations"] = {
     enabled: input.enabled,
     endpoint: input.endpoint,
     token: input.token,
+    options: input.options,
   }),
 };
 

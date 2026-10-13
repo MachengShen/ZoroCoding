@@ -6,7 +6,7 @@ import {
 
 export type ZoroDatabase = Database.Database;
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 function columnExists(
   database: ZoroDatabase,
@@ -208,6 +208,16 @@ function migrateV3ToV4(database: ZoroDatabase): void {
   database.prepare("UPDATE schema_version SET version = 4").run();
 }
 
+function migrateV4ToV5(database: ZoroDatabase): void {
+  addColumnIfMissing(
+    database,
+    "integration_settings",
+    "options_json",
+    "options_json TEXT NOT NULL DEFAULT '{}'",
+  );
+  database.prepare("UPDATE schema_version SET version = 5").run();
+}
+
 function migrate(database: ZoroDatabase): void {
   const hasVersionTable =
     database
@@ -247,7 +257,7 @@ function migrate(database: ZoroDatabase): void {
       "Invalid ZoroCoding schema metadata: version zero is not persisted",
     );
   }
-  if (![0, 1, 2, 3, SCHEMA_VERSION].includes(version)) {
+  if (![0, 1, 2, 3, 4, SCHEMA_VERSION].includes(version)) {
     throw new Error(
       `Unsupported ZoroCoding database schema ${version}`,
     );
@@ -258,6 +268,7 @@ function migrate(database: ZoroDatabase): void {
     if (version === 0) {
       database.prepare("INSERT INTO schema_version(version) VALUES (4)").run();
       migrateV3ToV4(database);
+      migrateV4ToV5(database);
       return;
     }
     if (version === 1) {
@@ -271,6 +282,10 @@ function migrate(database: ZoroDatabase): void {
     if (version === 3) {
       migrateV3ToV4(database);
       version = 4;
+    }
+    if (version === 4) {
+      migrateV4ToV5(database);
+      version = 5;
     }
     if (version !== SCHEMA_VERSION) {
       throw new Error(`Unsupported ZoroCoding database schema ${version}`);

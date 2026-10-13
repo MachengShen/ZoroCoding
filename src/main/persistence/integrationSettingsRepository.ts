@@ -19,6 +19,7 @@ interface IntegrationSettingsRow {
   secret_ref: string | null;
   key_suffix: string;
   updated_at: number;
+  options_json?: string;
 }
 
 export class IntegrationSettingsRepository {
@@ -37,6 +38,9 @@ export class IntegrationSettingsRepository {
       endpoint: row?.endpoint ?? "",
       keySuffix: row?.key_suffix ?? "",
       updatedAt: row?.updated_at ?? 0,
+      ...(row?.options_json && row.options_json !== "{}"
+        ? { options: JSON.parse(row.options_json) }
+        : {}),
     });
   }
 
@@ -72,15 +76,19 @@ export class IntegrationSettingsRepository {
       const keySuffix = parsed.token === undefined
         ? current?.key_suffix ?? ""
         : parsed.token.slice(-4);
+      const optionsJson = parsed.options === undefined
+        ? current?.options_json ?? "{}"
+        : JSON.stringify(parsed.options);
       this.database.prepare(`
-        INSERT INTO integration_settings(id, enabled, endpoint, secret_ref, key_suffix, updated_at)
-        VALUES (@id, @enabled, @endpoint, @secretRef, @keySuffix, @updatedAt)
+        INSERT INTO integration_settings(id, enabled, endpoint, secret_ref, key_suffix, updated_at, options_json)
+        VALUES (@id, @enabled, @endpoint, @secretRef, @keySuffix, @updatedAt, @optionsJson)
         ON CONFLICT(id) DO UPDATE SET
           enabled = excluded.enabled,
           endpoint = excluded.endpoint,
           secret_ref = excluded.secret_ref,
           key_suffix = excluded.key_suffix,
-          updated_at = excluded.updated_at
+          updated_at = excluded.updated_at,
+          options_json = excluded.options_json
       `).run({
         id: parsed.id,
         enabled: parsed.enabled ? 1 : 0,
@@ -88,6 +96,7 @@ export class IntegrationSettingsRepository {
         secretRef,
         keySuffix,
         updatedAt,
+        optionsJson,
       });
     } catch (error) {
       if (newSecretRef !== null) {

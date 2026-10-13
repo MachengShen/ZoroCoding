@@ -37,7 +37,7 @@ type IpcListener = (event: IpcEventLike, input?: unknown) => void;
 
 const ipcTestCrypto: SecretCrypto = {
   encryptString(value) {
-    return Buffer.from(value, "utf8").map((byte) => byte ^ 0xaa);
+    return Buffer.from(Buffer.from(value, "utf8").map((byte) => byte ^ 0xaa));
   },
   decryptString(value) {
     return Buffer.from(value.map((byte) => byte ^ 0xaa)).toString(
@@ -157,7 +157,7 @@ describe("registerIpc", () => {
   let modelRouter: ModelRouter;
   let ipcMain: FakeIpcMain;
   let dependencies: RegisterIpcDependencies;
-  let taskListener: ((task: TaskSnapshot) => void) | undefined;
+  let taskListener: ((task: TaskSnapshot, event?: TaskEvent) => void) | undefined;
   let quickChatListener: ((event: QuickChatEvent) => void) | undefined;
   const unsubscribe = vi.fn();
   const unsubscribeQuickChat = vi.fn();
@@ -203,13 +203,14 @@ describe("registerIpc", () => {
         dataRoot: join(portableRoot, "ZoroCodingData"),
         projectsRoot,
         storageAvailable: true,
+        restartRequired: false,
       },
       tasks,
       providers,
       integrations: new IntegrationSettingsRepository(database, new SecretStore(join(portableRoot, "secrets"), ipcTestCrypto)),
       quickChat,
       quickChatService: {
-        send: vi.fn(async (input) => ({
+        send: vi.fn(async (input): Promise<QuickChatMessage> => ({
           id: "assistant-1",
           sessionId: input.sessionId,
           role: "assistant",
@@ -234,7 +235,7 @@ describe("registerIpc", () => {
           createdAt: 100,
         })),
         cancel: vi.fn(async () => {}),
-        retry: vi.fn(async (input) => ({
+        retry: vi.fn(async (input): Promise<QuickChatMessage> => ({
           id: "assistant-retry",
           sessionId: input.sessionId,
           role: "assistant",
@@ -312,12 +313,12 @@ describe("registerIpc", () => {
         createProvider: vi.fn(),
         updateProvider: vi.fn(),
         deleteProvider: vi.fn(),
-        testDraft: vi.fn(async () => ({ ok: true, latencyMs: 12 })),
+        testDraft: vi.fn(async () => ({ ok: true as const, latencyMs: 12 })),
         discoverDraftModels: vi.fn(async () => [
           { id: "qwen-coder", label: "qwen-coder" },
         ]),
         testAndRecordProvider: vi.fn(async () => ({
-          ok: true,
+          ok: true as const,
           latencyMs: 15,
         })),
       },
@@ -388,6 +389,7 @@ describe("registerIpc", () => {
         dataRoot: "/Volumes/ORICO/ZoroCodingData",
         projectsRoot: "/Volumes/ORICO/ZoroCodingData/Projects",
         storageAvailable: true,
+        restartRequired: false,
       },
     });
 
@@ -397,6 +399,7 @@ describe("registerIpc", () => {
       dataRoot: "/Volumes/ORICO/ZoroCodingData",
       projectsRoot: "/Volumes/ORICO/ZoroCodingData/Projects",
       storageAvailable: true,
+      restartRequired: false,
     });
   });
 
@@ -799,9 +802,22 @@ describe("registerIpc", () => {
     ).not.toHaveBeenCalled();
   });
 
+  it("round-trips integration scopes through the validated IPC", async () => {
+    registerIpc(dependencies);
+    const options = {
+      readEnabled: true, writeEnabled: false, projectIds: ["project-1"],
+      reviewer: "http", unavailablePolicy: "block",
+    };
+    await ipcMain.invoke("zoro:integrations:update", { id: "memory", options });
+    expect(await ipcMain.invoke("zoro:integrations:get", { id: "memory" })).toMatchObject({ options });
+    await expect(ipcMain.invoke("zoro:integrations:update", {
+      id: "memory", options: { unavailablePolicy: "allow" },
+    })).rejects.toThrow("请求无效");
+  });
+
   it("rejects a routing preview result containing provider configuration fields", async () => {
     dependencies.modelRouter = {
-      resolve: vi.fn(() => ({
+      resolve: vi.fn<ModelRouter["resolve"]>(() => ({
         decision: {
           intent: "simple_qa",
           lane: "light",

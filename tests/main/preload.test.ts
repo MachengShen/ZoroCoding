@@ -99,13 +99,14 @@ describe("strict preload API", () => {
     await api.integrations.get("optional-service");
     const input = {
       id: "optional-service", enabled: false, endpoint: "", token: "write-only-token",
+      options: { readEnabled: true },
       secretRef: "forbidden-reference",
     };
     await api.integrations.update(input);
     expect(electronHarness.invocations).toEqual([
       { channel: "zoro:integrations:get", args: [{ id: "optional-service" }] },
       { channel: "zoro:integrations:update", args: [{
-        id: "optional-service", enabled: false, endpoint: "", token: "write-only-token",
+        id: "optional-service", enabled: false, endpoint: "", token: "write-only-token", options: { readEnabled: true },
       }] },
     ]);
   });

@@ -31,10 +31,21 @@ import type { ModelSelection, RouteDecision } from "./taskRouting";
 const integrationIdSchema = z.string().trim().min(1).max(120)
   .regex(/^[a-z][a-z0-9-]*$/);
 
+export const integrationOptionsSchema = z.object({
+  readEnabled: z.boolean().default(false),
+  writeEnabled: z.boolean().default(false),
+  projectIds: z.array(z.string().min(1).max(120)).max(1000).default([]),
+  reviewer: z.enum(["manual", "http"]).default("manual"),
+  unavailablePolicy: z.enum(["block", "manual"]).default("block"),
+}).strict();
+
+export type IntegrationOptions = z.infer<typeof integrationOptionsSchema>;
+
 const integrationSettingsObject = z.object({
   id: integrationIdSchema,
   enabled: z.boolean().default(false),
   endpoint: z.union([z.string().trim().url(), z.literal("")]).default(""),
+  options: integrationOptionsSchema.optional(),
 }).strict();
 
 function validateIntegrationEndpoint(
