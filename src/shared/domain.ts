@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ApprovalTier } from "./approvalTier";
 import type {
   ModelSelection,
   RouteDecision,
@@ -158,6 +159,31 @@ const taskEventDataSchema: z.ZodType<unknown> = z.lazy(() =>
   ]),
 );
 
+export const approvalReviewEntrySchema = z.object({
+  reviewer: boundedIdentifierSchema,
+  verdict: z.enum([
+    "deny",
+    "annotate",
+    "request_information",
+    "escalate",
+    "unavailable",
+  ]),
+  text: boundedTextSchema.min(1),
+}).strict();
+
+export const approvalReviewSchema = z.object({
+  outcome: z.enum(["ask_human", "deny", "block"]),
+  entries: z.array(approvalReviewEntrySchema).max(100),
+}).strict().refine((review) => {
+  const denied = review.entries.some((entry) => entry.verdict === "deny");
+  return review.outcome === "deny"
+    ? denied
+    : !denied && (review.outcome !== "block" ||
+      review.entries.some((entry) => entry.verdict === "unavailable"));
+});
+
+export type ApprovalReview = z.infer<typeof approvalReviewSchema>;
+
 export interface ToolCall {
   id: string;
   name: ToolName;
@@ -310,6 +336,16 @@ export type TaskEvent =
         approvalId: string;
         summary: string;
         reasons: string[];
+        tier?: ApprovalTier;
+        review?: ApprovalReview;
+      };
+    })
+  | (TaskEventBase & {
+      type: "approval_reviewed";
+      payload: {
+        approvalId: string;
+        tier: ApprovalTier;
+        review: ApprovalReview;
       };
     })
   | (TaskEventBase & {
@@ -601,6 +637,19 @@ export const taskEventSchema: z.ZodType<TaskEvent> =
         approvalId: boundedIdentifierSchema,
         summary: boundedTextSchema.min(1),
         reasons: z.array(boundedTextSchema.min(1)).max(100),
+        tier: z.enum(["T1", "T2"]).optional(),
+        review: approvalReviewSchema
+          .refine((review) => review.outcome === "ask_human")
+          .optional(),
+      }).strict(),
+    }).strict(),
+    z.object({
+      ...taskEventBase,
+      type: z.literal("approval_reviewed"),
+      payload: z.object({
+        approvalId: boundedIdentifierSchema,
+        tier: z.enum(["T1", "T2"]),
+        review: approvalReviewSchema,
       }).strict(),
     }).strict(),
     z.object({
