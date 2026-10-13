@@ -13,6 +13,12 @@ import type {
   ModelToolCall,
 } from "../models/types";
 import { ModelProviderError } from "../models/openAiCompatibleProvider";
+import type { MemoryProvider } from "../memory/memoryProvider";
+import { NoopMemoryProvider } from "../memory/noopMemoryProvider";
+import {
+  formatMemoryContext,
+  MAX_MEMORY_ENTRIES,
+} from "../memory/contextFormatter";
 import type { TaskRepository } from "../persistence/taskRepository";
 import { computeProgress } from "../tasks/progressEngine";
 import type {
@@ -95,6 +101,10 @@ export interface AgentRuntimeOptions {
   recoverInterrupted?: boolean;
   storageCancellationTimeoutMs?: number;
   approvalReview?: ReviewerChainOptions;
+  /** Optional read-only recall. Omitted providers perform no I/O. */
+  memoryProvider?: MemoryProvider;
+  /** Read deadline, defaulting to one second and capped at thirty seconds. */
+  memoryReadTimeoutMs?: number;
 }
 
 export interface CreateTaskInput {
@@ -272,6 +282,9 @@ export class AgentRuntime {
     Map<string, ToolResult>
   >();
   private storageInterrupted = false;
+  private readonly memoryProvider: MemoryProvider;
+  private readonly memoryReadTimeoutMs: number;
+  private readonly memoryContexts = new Map<string, string>();
   private readonly storageCancellationTimeoutMs: number;
   private readonly approvalReview?: ReviewerChainOptions;
   private queue: Promise<void> = Promise.resolve();
@@ -284,6 +297,11 @@ export class AgentRuntime {
     this.now = options.now ?? Date.now;
     this.sleep = options.sleep ?? defaultSleep;
     this.createId = options.createId ?? randomUUID;
+    this.memoryProvider = options.memoryProvider ?? new NoopMemoryProvider();
+    const memoryReadTimeoutMs = options.memoryReadTimeoutMs ?? 1_000;
+    this.memoryReadTimeoutMs = Number.isFinite(memoryReadTimeoutMs)
+      ? Math.min(30_000, Math.max(1, memoryReadTimeoutMs))
+      : 1_000;
     this.storageCancellationTimeoutMs = options.storageCancellationTimeoutMs ?? 2_000;
     if (options.recoverInterrupted !== false) {
       for (const task of this.repository.recoverInterrupted(this.now())) {
@@ -429,6 +447,7 @@ export class AgentRuntime {
       type: "task_canceled",
       payload: {},
     });
+    this.memoryContexts.delete(taskId);
     this.abortControllers.get(taskId)?.abort();
     this.abortApproval(taskId);
     await this.activeTools.get(taskId)?.cancelAll();
@@ -536,6 +555,13 @@ export class AgentRuntime {
     } finally {
       this.activeTools.delete(taskId);
       this.abortControllers.delete(taskId);
+      if (
+        ["completed", "failed", "canceled"].includes(
+          this.repository.get(taskId)?.status ?? "",
+        )
+      ) {
+        this.memoryContexts.delete(taskId);
+      }
     }
   }
 
@@ -549,6 +575,14 @@ export class AgentRuntime {
       snapshot = this.requireTask(taskId);
     }
 
+    if (snapshot.status !== "planning" && snapshot.status !== "running") {
+      return;
+    }
+    await this.loadMemoryContext(taskId);
+    this.throwIfStorageInterrupted();
+    if (!["planning", "running"].includes(this.requireTask(taskId).status)) {
+      return;
+    }
     let steps = this.repository.steps(taskId);
     if (steps.length === 0) {
       if (snapshot.status !== "planning") {
@@ -629,6 +663,71 @@ export class AgentRuntime {
     }
   }
 
+  private async loadMemoryContext(taskId: string): Promise<void> {
+    if (this.memoryContexts.has(taskId)) {
+      return;
+    }
+    const controller = new AbortController();
+    this.abortControllers.set(taskId, controller);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let onAbort: () => void = () => {};
+    let context = { content: "", entryCount: 0 };
+    try {
+      if (!this.memoryProvider.capabilities().search) {
+        this.memoryContexts.set(taskId, "");
+        return;
+      }
+      const task = this.requireTask(taskId);
+      const stopped = new Promise<null>((resolve) => {
+        onAbort = () => resolve(null);
+        controller.signal.addEventListener("abort", onAbort, { once: true });
+        timer = setTimeout(() => controller.abort(), this.memoryReadTimeoutMs);
+      });
+      const entries = await Promise.race([
+        this.memoryProvider.search({
+          projectId: task.projectId,
+          query: task.prompt,
+          limit: MAX_MEMORY_ENTRIES,
+          signal: controller.signal,
+        }),
+        stopped,
+      ]);
+      if (entries !== null) {
+        context = formatMemoryContext(entries);
+      }
+    } catch {
+      // Recall is optional: failed reads must not fail the task.
+    } finally {
+      clearTimeout(timer);
+      controller.signal.removeEventListener("abort", onAbort);
+      controller.abort();
+      if (this.abortControllers.get(taskId) === controller) {
+        this.abortControllers.delete(taskId);
+      }
+    }
+    this.throwIfStorageInterrupted();
+    if (!["planning", "running"].includes(this.requireTask(taskId).status)) {
+      return;
+    }
+    this.memoryContexts.set(taskId, context.content);
+    if (context.entryCount > 0) {
+      this.appendEvent(taskId, {
+        type: "memory_context_loaded",
+        payload: {
+          entryCount: context.entryCount,
+          charCount: context.content.length,
+        },
+      });
+    }
+  }
+
+  private injectMemoryContext(taskId: string, messages: ModelMessage[]): void {
+    const content = this.memoryContexts.get(taskId);
+    if (content) {
+      messages.splice(1, 0, { role: "user", content });
+    }
+  }
+
   private async createPlan(taskId: string): Promise<void> {
     const task = this.requireTask(taskId);
     const planningMessages: ModelMessage[] = [
@@ -641,6 +740,7 @@ export class AgentRuntime {
       },
       { role: "user", content: task.prompt },
     ];
+    this.injectMemoryContext(taskId, planningMessages);
     let planText = await this.collectText(
       taskId,
       "planning",
@@ -714,6 +814,7 @@ export class AgentRuntime {
         ].join("\n"),
       },
     ];
+    this.injectMemoryContext(taskId, messages);
     const persisted = this.repository.messages(taskId);
     const knownMessageIds = new Set<string>();
     const initialUser = persisted.find(
