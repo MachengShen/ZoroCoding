@@ -92,6 +92,26 @@ describe("strict preload API", () => {
     electronHarness.reset();
   });
 
+  it("exposes only named export operations with task-scoped dispatch", async () => {
+    const service = (await loadPreload()).memoryExports!;
+    expect(Object.isFrozen(service)).toBe(true);
+    expect("invoke" in service).toBe(false);
+    await service.destinations();
+    await service.preview("task-1", "destination-1");
+    await service.consent("preview-token");
+    await service.list("task-1");
+    await service.revoke("write-1");
+    await service.flush("task-1");
+    expect(electronHarness.invocations).toEqual([
+      { channel: "zoro:memory-exports:destinations", args: [] },
+      { channel: "zoro:memory-exports:preview", args: [{ taskId: "task-1", destinationId: "destination-1" }] },
+      { channel: "zoro:memory-exports:consent", args: [{ token: "preview-token" }] },
+      { channel: "zoro:memory-exports:list", args: [{ taskId: "task-1" }] },
+      { channel: "zoro:memory-exports:revoke", args: [{ clientWriteId: "write-1" }] },
+      { channel: "zoro:memory-exports:flush", args: [{ taskId: "task-1" }] },
+    ]);
+  });
+
   it("exposes only frozen named routing and Quick Chat methods", async () => {
     const api = await loadPreload();
 

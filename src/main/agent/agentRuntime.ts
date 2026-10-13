@@ -100,6 +100,7 @@ export interface AgentRuntimeOptions {
   memoryProvider?: MemoryProvider;
   /** Read deadline, defaulting to one second and capped at thirty seconds. */
   memoryReadTimeoutMs?: number;
+  onTaskCompleted?: (taskId: string) => void;
 }
 
 export interface CreateTaskInput {
@@ -275,6 +276,7 @@ export class AgentRuntime {
     Map<string, ToolResult>
   >();
   private storageInterrupted = false;
+  private readonly onTaskCompleted?: (taskId: string) => void;
   private readonly memoryProvider: MemoryProvider;
   private readonly memoryReadTimeoutMs: number;
   private readonly memoryContexts = new Map<string, string>();
@@ -282,6 +284,7 @@ export class AgentRuntime {
   private queue: Promise<void> = Promise.resolve();
 
   constructor(options: AgentRuntimeOptions) {
+    this.onTaskCompleted = options.onTaskCompleted;
     this.repository = options.repository;
     this.modelGateway = options.modelGateway;
     this.createTools = options.createTools;
@@ -644,6 +647,12 @@ export class AgentRuntime {
         type: "task_completed",
         payload: {},
       });
+      // Export preparation must never change the completed task's status.
+      try {
+        this.onTaskCompleted?.(taskId);
+      } catch {
+        // Local export is independent.
+      }
     }
   }
 

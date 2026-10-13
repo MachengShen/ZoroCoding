@@ -239,6 +239,19 @@ describe("AgentRuntime", () => {
     };
   }
 
+  it("prepares an export after completion without coupling export failure to task status", async () => {
+    const completed = vi.fn((taskId: string) => {
+      expect(repository.get(taskId)?.status).toBe("completed");
+      throw new Error("Export preparation unavailable");
+    });
+    const { runtime } = harness([plan(), answer()], undefined, { onTaskCompleted: completed });
+    const task = await runtime.createTask(input());
+    await runtime.waitForIdle();
+    expect(completed).toHaveBeenCalledExactlyOnceWith(task.id);
+    expect(repository.get(task.id)?.status).toBe("completed");
+    expect(repository.events(task.id).some((event) => event.type === "task_failed")).toBe(false);
+  });
+
   it("keeps default and explicit no-op message arrays identical", async () => {
     const baseline = harness([plan(), answer()]);
     await baseline.runtime.createTask(input());
@@ -780,7 +793,7 @@ describe("AgentRuntime", () => {
           (async function* () {
             await new Promise<void>((resolve) => {
               release = resolve;
-              request.signal?.addEventListener("abort", resolve, {
+              request.signal?.addEventListener("abort", () => resolve(), {
                 once: true,
               });
             });
@@ -815,7 +828,7 @@ describe("AgentRuntime", () => {
           if (modelCall === 1) {
             markBlocked?.();
             await new Promise<void>((resolve) => {
-              request.signal?.addEventListener("abort", resolve, {
+              request.signal?.addEventListener("abort", () => resolve(), {
                 once: true,
               });
             });
@@ -849,7 +862,7 @@ describe("AgentRuntime", () => {
         (async function* () {
           await new Promise<void>((resolve) => {
             release = resolve;
-            request.signal?.addEventListener("abort", resolve, {
+            request.signal?.addEventListener("abort", () => resolve(), {
               once: true,
             });
           });
@@ -881,7 +894,7 @@ describe("AgentRuntime", () => {
           modelCall += 1;
           if (modelCall === 3) {
             await new Promise<void>((resolve) => {
-              request.signal?.addEventListener("abort", resolve, {
+              request.signal?.addEventListener("abort", () => resolve(), {
                 once: true,
               });
             });
@@ -939,7 +952,7 @@ describe("AgentRuntime", () => {
           modelCall += 1;
           if (modelCall === 3) {
             await new Promise<void>((resolve) => {
-              request.signal?.addEventListener("abort", resolve, {
+              request.signal?.addEventListener("abort", () => resolve(), {
                 once: true,
               });
             });
@@ -1188,7 +1201,7 @@ describe("AgentRuntime", () => {
           if (modelCall === 1) {
             planningStarted?.();
             await new Promise<void>((resolve) => {
-              request.signal?.addEventListener("abort", resolve, {
+              request.signal?.addEventListener("abort", () => resolve(), {
                 once: true,
               });
             });
@@ -1274,7 +1287,7 @@ describe("AgentRuntime", () => {
           if (modelCall === 2) {
             stepBlocked?.();
             await new Promise<void>((resolve) => {
-              request.signal?.addEventListener("abort", resolve, {
+              request.signal?.addEventListener("abort", () => resolve(), {
                 once: true,
               });
             });
@@ -1367,7 +1380,7 @@ describe("AgentRuntime", () => {
           }
           modelStarted?.();
           await new Promise<void>((resolve) => {
-            request.signal?.addEventListener("abort", resolve, { once: true });
+            request.signal?.addEventListener("abort", () => resolve(), { once: true });
           });
           throw new DOMException("Aborted", "AbortError");
         })(),
@@ -1409,7 +1422,7 @@ describe("AgentRuntime", () => {
         calls += 1;
         if (calls === 1) { for (const event of plan()) yield event; return; }
         modelStarted?.();
-        await new Promise<void>((resolve) => request.signal?.addEventListener("abort", resolve, { once: true }));
+        await new Promise<void>((resolve) => request.signal?.addEventListener("abort", () => resolve(), { once: true }));
         throw new DOMException("Aborted", "AbortError");
       })() },
     });
